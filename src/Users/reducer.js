@@ -2,28 +2,30 @@ import { types } from './constants';
 
 const initialState = {
     loading: false,
+    users:[],
     error: {},
 }
 
-export default function authReducer(state = initialState, action) {
+export default function usersReducer(state = initialState, action) {
     switch (action.type) {
-        case types.CREATE_LOGIN:
+        case types.GET_USERS:
             return {
                 ...state,
                 loading: true
             }
-        case types.CREATE_LOGIN_SUCCESS:
+        case types.GET_USERS_SUCCESS:
             return {
                 ...state,
                 loading: false,
-                login: action.payload,
+                users: action.payload,
                 error: {},
               
             }
-        case types.CREATE_LOGIN_FAILURE:
+        case types.GET_USERS_FAILURE:
             return {
                 ...state,
                 loading: false,
+                users: [],
                 error: action.error,
             }
         default:
