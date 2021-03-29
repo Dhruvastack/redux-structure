@@ -1,0 +1,1145 @@
+//saga
+
+import { all, call, put, select, takeEvery } from 'redux-saga/effects';
+import QueryString from 'query-string';
+import api from '../../utils/api';
+import { successAlert, errorAlert } from '../Alerts/actions';
+import {
+  USERS_EDIT_MODAL_OPEN_AND_FETCH,
+  USERS_VIEW_MODAL_OPEN_AND_FETCH,
+  LOAD_USERS,
+  USER_SAVE,
+  DELETE_USER,
+  USER_EDIT,
+  UPDATE_USER_PROFILE,
+} from './constants';
+import actions from './actions';
+import authActions from '../Auth/actions';
+
+const {
+  usersModalSetUser,
+  loadUsers: loadUsersAction,
+  loadUsersPending,
+  loadUsersSuceess,
+  loadUsersFailure,
+  saveUserPending,
+  saveUserSuccess,
+  saveUserFailure,
+  deleteUserPending,
+  deleteUserSuccess,
+  deleteUserFailure,
+  editUserPending,
+  editUserSuccess,
+  editUserFailure,
+  updateUserProfilePending,
+  updateUserProfileSuccess,
+  updateUserProfileFailure,
+} = actions;
+const { loginSuccess } = authActions;
+// Individual exports for testing
+export function* openUsersViewModal({ payload }) {
+  const token = yield select((state) => state?.AuthReducer?.token);
+  try {
+    const userResponse = yield call(api(token).get, `/api/users/${payload}`);
+    if (userResponse.data && userResponse.data.id) {
+      yield put(usersModalSetUser(userResponse.data));
+    }
+  } catch (e) {
+    yield put(errorAlert('Error while retrieving user!'));
+    console.log(e);
+  }
+}
+// using a single action to set user for view and edit
+export function* openUsersEditModal({ payload }) {
+  const token = yield select((state) => state?.AuthReducer?.token);
+  const isViewModalOpen = yield select(
+    (state) => state?.UserReducer?.isViewModalOpen,
+  );
+  const currentUser = yield select((state) => state?.UserReducer?.currentUser);
+  try {
+    if (isViewModalOpen && currentUser?.id === payload) {
+      yield put(usersModalSetUser(currentUser));
+    } else {
+      const { data } = yield call(api(token).get, `/api/users/${payload}`);
+      if (data && data.id) {
+        yield put(usersModalSetUser(data));
+      }
+    }
+  } catch (e) {
+    yield put(errorAlert('Error while retrieving user!'));
+    console.log(e);
+  }
+}
+export function* openUsersViewModalFlow() {
+  yield takeEvery(USERS_VIEW_MODAL_OPEN_AND_FETCH, openUsersViewModal);
+}
+export function* openUsersEditModalFlow() {
+  yield takeEvery(USERS_EDIT_MODAL_OPEN_AND_FETCH, openUsersEditModal);
+}
+
+export function* loadUsers({ payload = { cancelToken: null } }) {
+  const token = yield select((state) => state?.AuthReducer?.token);
+  yield put(loadUsersPending({ isLoadingUsers: true }));
+  try {
+    const { cancelToken, page } = payload;
+    const { data } = yield call(
+      api(token, cancelToken).get,
+      `/api/users?${page ? QueryString.stringify({ page }) : ''}`,
+    );
+
+    yield put(loadUsersSuceess(data));
+  } catch (e) {
+    yield put(errorAlert('Error while retrieving users!'));
+    yield put(loadUsersFailure({ error: e }));
+  }
+}
+
+export function* saveUser({ payload }) {
+  const token = yield select((state) => state?.AuthReducer?.token);
+  yield put(saveUserPending({ isUserSaving: true }));
+  try {
+    const saveResponse = yield call(
+      api(token).post,
+      `/api/users/add`,
+      payload.formdata,
+    );
+    yield put(successAlert('User created successfully!'));
+    yield put(saveUserSuccess({ users: saveResponse.data }));
+    yield put(loadUsersAction());
+  } catch (error) {
+    yield put(
+      errorAlert(
+        typeof error === 'string' ? error : 'Error while saving user!',
+      ),
+    );
+    yield put(saveUserFailure({ error: error }));
+  }
+}
+
+export function* deleteUser({ payload }) {
+  const token = yield select((state) => state?.AuthReducer?.token);
+  yield put(deleteUserPending({ isUserDeleting: true }));
+  try {
+    const deleteResponse = yield call(
+      api(token).delete,
+      `api/users/${payload}`,
+    );
+    yield put(deleteUserSuccess({ message: deleteResponse.message }));
+    yield put(successAlert('User deleted successfully!'));
+    yield put(loadUsersAction());
+  } catch (error) {
+    yield put(
+      errorAlert(
+        typeof error === 'string' ? error : error.response.data.message,
+      ),
+    );
+    yield put(deleteUserFailure({ error: error }));
+  }
+}
+
+// Edit user
+export function* editUser({ payload }) {
+  const token = yield select((state) => state?.AuthReducer?.token);
+  const currentUser = yield select((state) => state?.UserReducer?.currentUser);
+  yield put(editUserPending({ isUserSaving: true }));
+  try {
+    const editResponse = yield call(
+      api(token).post,
+      `/api/users/edit/${currentUser.id}`,
+      payload.formdata,
+    );
+    yield put(editUserSuccess({ message: editResponse.data }));
+    yield put(loadUsersAction());
+    yield put(successAlert('User edited successfully!'));
+  } catch (error) {
+    yield put(
+      errorAlert(
+        typeof error === 'string' ? error : 'Error while saving user!',
+      ),
+    );
+    yield put(editUserFailure({ error: error }));
+  }
+}
+
+// Update user profile
+export function* updateUserProfile({ payload }) {
+  const token = yield select((state) => state?.AuthReducer?.token);
+  yield put(updateUserProfilePending({ isUserSaving: true }));
+  try {
+    const profileResponse = yield call(
+      api(token).post,
+      `api/users/self/edit`,
+      payload,
+    );
+    yield put(updateUserProfileSuccess({ data: profileResponse.data }));
+    // update the auth user
+    yield put(loginSuccess({ token: token, user: profileResponse.data }));
+    yield put(successAlert('Profile update successfully!'));
+  } catch (error) {
+    yield put(
+      errorAlert(
+        typeof error === 'string' ? error : 'Error while updating profile!',
+      ),
+    );
+    yield put(updateUserProfileFailure({ error: error }));
+  }
+}
+
+// Action watchers
+
+export function* watchLoadUsers() {
+  yield takeEvery(LOAD_USERS, loadUsers);
+}
+
+export function* watchSaveUser() {
+  yield takeEvery(USER_SAVE, saveUser);
+}
+
+export function* watchEditUser() {
+  yield takeEvery(USER_EDIT, editUser);
+}
+export function* watchDeleteUser() {
+  yield takeEvery(DELETE_USER, deleteUser);
+}
+
+export function* watchUpdateProfile() {
+  yield takeEvery(UPDATE_USER_PROFILE, updateUserProfile);
+}
+
+export default function* usersSaga() {
+  yield all([
+    openUsersEditModalFlow(),
+    openUsersViewModalFlow(),
+    watchLoadUsers(),
+    watchSaveUser(),
+    watchDeleteUser(),
+    watchEditUser(),
+    watchUpdateProfile(),
+  ]);
+}
+//reducers
+
+
+import produce from 'immer';
+import {
+  USERS_CLOSE_ADD_MODAL,
+  USERS_CLOSE_EDIT_MODAL,
+  USERS_CLOSE_VIEW_MODAL,
+  USERS_EDIT_MODAL_OPEN_AND_FETCH,
+  USERS_MODAL_SET_USER,
+  USERS_OPEN_ADD_MODAL,
+  USERS_VIEW_MODAL_OPEN_AND_FETCH,
+  GET_USER_PENDING,
+  GET_USER_SUCCESS,
+  GET_USER_FAILURE,
+  USER_SAVE_PENDING,
+  USER_SAVE_SUCCESS,
+  USER_SAVE_FAILURE,
+  DELETE_USER_PENDING,
+  DELETE_USER_SUCCESS,
+  DELETE_USER_FAILURE,
+  USER_EDIT_PENDING,
+  USER_EDIT_SUCCESS,
+  USER_EDIT_FAILURE,
+  UPDATE_USER_PROFILE_PENDING,
+  UPDATE_USER_PROFILE_SUCCESS,
+  UPDATE_USER_PROFILE_FAILURE,
+} from './constants';
+
+const initialState = {
+  isAddModalOpen: false,
+  isViewModalOpen: false,
+  isEditModalOpen: false,
+  isEditing: false,
+  isFetching: false,
+  currentUser: {},
+  alert: {},
+  users: [],
+  isLoadingUsers: false,
+  error: null,
+  isUserSaving: false,
+  saveError: null,
+  message: null,
+  isUserDeleting: false,
+  deleteError: null,
+  doOpen: true,
+  updateProfileError: null,
+  isUpdatingProfileLoading: false,
+  updateUserProfile: null,
+};
+const UserReducer = (state = initialState, action) => {
+  return produce(state, (draft) => {
+    switch (action.type) {
+      case USERS_OPEN_ADD_MODAL:
+        draft.isAddModalOpen = true;
+        draft.isEditModalOpen = false;
+        draft.isEditing = false;
+        draft.isViewModalOpen = false;
+        draft.currentUser = null;
+        draft.isFetching = false;
+        break;
+      case USERS_CLOSE_ADD_MODAL:
+        draft.isAddModalOpen = false;
+        break;
+      case USERS_VIEW_MODAL_OPEN_AND_FETCH:
+        draft.isFetching = true;
+        draft.isAddModalOpen = false;
+        draft.isEditModalOpen = false;
+        draft.currentUser = null;
+        draft.isViewModalOpen = true;
+        break;
+      case USERS_MODAL_SET_USER:
+        draft.isFetching = false;
+        draft.currentUser = action.payload;
+        break;
+      case USERS_CLOSE_VIEW_MODAL:
+        draft.isViewModalOpen = false;
+        break;
+      case USERS_EDIT_MODAL_OPEN_AND_FETCH:
+        draft.isEditing = true;
+        draft.isFetching = true;
+        draft.isEditModalOpen = true;
+        draft.isAddModalOpen = false;
+        draft.isViewModalOpen = false;
+        if (draft.currentUser?.id !== action.payload) {
+          draft.currentUser = null;
+        }
+        break;
+      case USERS_CLOSE_EDIT_MODAL:
+        draft.isEditing = false;
+        draft.isEditModalOpen = false;
+        break;
+      case GET_USER_PENDING:
+        draft.isLoadingUsers = action.payload.isLoadingUsers;
+        draft.saveError = null;
+        draft.isEditModalOpen = false;
+        draft.isAddModalOpen = false;
+        draft.isViewModalOpen = false;
+        draft.doOpen = true;
+        break;
+      case GET_USER_SUCCESS:
+        draft.isLoadingUsers = false;
+        draft.users = action.payload;
+        draft.isFetching = false;
+        break;
+      case GET_USER_FAILURE:
+        draft.isLoadingUsers = false;
+        draft.error = action.payload.error;
+        draft.isFetching = false;
+        break;
+      case USER_SAVE_PENDING:
+        draft.isUserSaving = action.payload.isUserSaving;
+        draft.saveError = null;
+        break;
+      case USER_SAVE_SUCCESS:
+        draft.isUserSaving = false;
+        draft.message = action.payload.message;
+        draft.isAddModalOpen = false;
+        draft.saveError = null;
+        break;
+      case USER_SAVE_FAILURE:
+        draft.isUserSaving = false;
+        draft.saveError = action.payload.error;
+        break;
+
+      //EDIT USERS
+
+      case USER_EDIT_PENDING:
+        draft.isUserSaving = action.payload.isUserSaving;
+        draft.saveError = null;
+        break;
+      case USER_EDIT_SUCCESS:
+        draft.isUserSaving = false;
+        draft.message = action.payload.message;
+        draft.isAddModalOpen = false;
+        draft.saveError = null;
+        break;
+      case USER_EDIT_FAILURE:
+        draft.isUserSaving = false;
+        draft.saveError = action.payload.error;
+        break;
+
+      //DELETE USER
+      case DELETE_USER_PENDING:
+        draft.isUserDeleting = action.payload.isUserDeleting;
+        draft.deleteError = null;
+        draft.doOpen = true;
+        break;
+      case DELETE_USER_SUCCESS:
+        draft.isUserDeleting = false;
+        draft.message = action.payload.message;
+        draft.deleteError = null;
+        draft.doOpen = false;
+        break;
+      case DELETE_USER_FAILURE:
+        draft.isUserDeleting = false;
+        draft.deleteError = action.payload.error;
+        draft.doOpen = false;
+        break;
+      // for update user profile
+      case UPDATE_USER_PROFILE_PENDING:
+        draft.isUpdatingProfileLoading = true;
+        draft.updateUserProfile = null;
+        draft.updateProfileError = null;
+        break;
+      case UPDATE_USER_PROFILE_SUCCESS:
+        draft.isUpdatingProfileLoading = false;
+        draft.updateUserProfile = action.payload.data;
+        draft.updateProfileError = null;
+        break;
+      case UPDATE_USER_PROFILE_FAILURE:
+        draft.updateProfileError = action.payload.error;
+        draft.updateUserProfile = null;
+        draft.isUpdatingProfileLoading = false;
+        break;
+      default:
+        return state;
+    }
+  });
+};
+export default UserReducer;
+//constants
+
+
+export const USERS_OPEN_ADD_MODAL = 'app/Users/OPEN_ADD_MODAL';
+export const USERS_CLOSE_ADD_MODAL = 'app/Users/CLOSE_ADD_MODAL';
+export const USERS_EDIT_MODAL_OPEN_AND_FETCH =
+  'app/Users/EDIT_MODAL_OPEN_AND_FETCH';
+export const USERS_CLOSE_EDIT_MODAL = 'app/Users/CLOSE_EDIT_MODAL';
+export const USERS_VIEW_MODAL_OPEN_AND_FETCH =
+  'app/Users/VIEW_MODAL_OPEN_AND_FETCH';
+export const USERS_MODAL_SET_USER = 'app/Users/MODAL_SET_USER';
+export const USERS_CLOSE_VIEW_MODAL = 'app/Users/CLOSE_VIEW_MODAL';
+export const GET_USER_PENDING = 'app/Users/GET_USER_PENDING';
+export const GET_USER_SUCCESS = 'app/Users/GET_USER_SUCCESS';
+export const GET_USER_FAILURE = 'app/Users/GET_USER_FAILURE';
+export const LOAD_USERS = 'app/Users/LOAD_USERS';
+
+export const USER_SAVE_PENDING = 'app/Users/USER_SAVE_PENDING';
+export const USER_SAVE_SUCCESS = 'app/Users/USER_SAVE_SUCCESS';
+export const USER_SAVE_FAILURE = 'app/Users/USER_SAVE_FAILURE';
+export const USER_SAVE = 'app/Users/USER_SAVE';
+
+export const USER_EDIT_PENDING = 'app/Users/USER_EDIT_PENDING';
+export const USER_EDIT_SUCCESS = 'app/Users/USER_EDIT_SUCCESS';
+export const USER_EDIT_FAILURE = 'app/Users/USER_EDIT_FAILURE';
+export const USER_EDIT = 'app/Users/USER_EDIT';
+
+export const DELETE_USER_PENDING = 'app/Users/DELETE_USER_PENDING';
+export const DELETE_USER_SUCCESS = 'app/Users/DELETE_USER_SUCCESS';
+export const DELETE_USER_FAILURE = 'app/Users/DELETE_USER_FAILURE';
+export const DELETE_USER = 'app/Users/DELETE_USER';
+
+export const UPDATE_USER_PROFILE = 'app/Users/UPDATE_USER_PROFILE';
+export const UPDATE_USER_PROFILE_PENDING =
+  'app/Users/UPDATE_USER_PROFILE_PENDING';
+export const UPDATE_USER_PROFILE_SUCCESS =
+  'app/Users/UPDATE_USER_PROFILE_SUCCESS';
+export const UPDATE_USER_PROFILE_FAILURE =
+  'app/Users/UPDATE_USER_PROFILE_FAILURE';
+
+
+//sagas
+
+
+import {
+  USERS_CLOSE_ADD_MODAL,
+  USERS_CLOSE_EDIT_MODAL,
+  USERS_CLOSE_VIEW_MODAL,
+  USERS_EDIT_MODAL_OPEN_AND_FETCH,
+  USERS_MODAL_SET_USER,
+  USERS_OPEN_ADD_MODAL,
+  USERS_VIEW_MODAL_OPEN_AND_FETCH,
+  GET_USER_PENDING,
+  GET_USER_SUCCESS,
+  GET_USER_FAILURE,
+  LOAD_USERS,
+  USER_SAVE_PENDING,
+  USER_SAVE_SUCCESS,
+  USER_SAVE_FAILURE,
+  USER_SAVE,
+  DELETE_USER_PENDING,
+  DELETE_USER_SUCCESS,
+  DELETE_USER_FAILURE,
+  DELETE_USER,
+  USER_EDIT_PENDING,
+  USER_EDIT_SUCCESS,
+  USER_EDIT_FAILURE,
+  USER_EDIT,
+  UPDATE_USER_PROFILE,
+  UPDATE_USER_PROFILE_PENDING,
+  UPDATE_USER_PROFILE_SUCCESS,
+  UPDATE_USER_PROFILE_FAILURE,
+} from './constants';
+const actions = {
+  openUsersAddModal: (payload) => {
+    return {
+      type: USERS_OPEN_ADD_MODAL,
+      payload,
+    };
+  },
+  closeUsersAddModal: (payload) => {
+    return {
+      type: USERS_CLOSE_ADD_MODAL,
+      payload,
+    };
+  },
+  usersViewModalStartFetching: (payload) => {
+    return {
+      type: USERS_VIEW_MODAL_OPEN_AND_FETCH,
+      payload,
+    };
+  },
+  usersModalSetUser: (payload) => {
+    return {
+      type: USERS_MODAL_SET_USER,
+      payload,
+    };
+  },
+  closeUsersViewModal: (payload) => {
+    return {
+      type: USERS_CLOSE_VIEW_MODAL,
+      payload,
+    };
+  },
+  closeUsersEditModal: (payload) => {
+    return {
+      type: USERS_CLOSE_EDIT_MODAL,
+      payload,
+    };
+  },
+  usersEditModalStartFetching: (payload) => {
+    return {
+      type: USERS_EDIT_MODAL_OPEN_AND_FETCH,
+      payload,
+    };
+  },
+  loadUsersPending: (payload) => {
+    return {
+      type: GET_USER_PENDING,
+      payload,
+    };
+  },
+  loadUsersSuceess: (payload) => {
+    return {
+      type: GET_USER_SUCCESS,
+      payload,
+    };
+  },
+  loadUsersFailure: (payload) => {
+    return {
+      type: GET_USER_FAILURE,
+      payload,
+    };
+  },
+  loadUsers: (payload) => {
+    return {
+      type: LOAD_USERS,
+      payload,
+    };
+  },
+  // Save Users
+
+  saveUser: (payload) => {
+    return {
+      type: USER_SAVE,
+      payload,
+    };
+  },
+  saveUserPending: (payload) => {
+    return {
+      type: USER_SAVE_PENDING,
+      payload,
+    };
+  },
+  saveUserSuccess: (payload) => {
+    return {
+      type: USER_SAVE_SUCCESS,
+      payload,
+    };
+  },
+  saveUserFailure: (payload) => {
+    return {
+      type: USER_SAVE_FAILURE,
+      payload,
+    };
+  },
+
+  // Edit Users
+
+  editUser: (payload) => {
+    return {
+      type: USER_EDIT,
+      payload,
+    };
+  },
+  editUserPending: (payload) => {
+    return {
+      type: USER_EDIT_PENDING,
+      payload,
+    };
+  },
+  editUserSuccess: (payload) => {
+    return {
+      type: USER_EDIT_SUCCESS,
+      payload,
+    };
+  },
+  editUserFailure: (payload) => {
+    return {
+      type: USER_EDIT_FAILURE,
+      payload,
+    };
+  },
+
+  // For delete users
+  deleteUser: (payload) => {
+    return {
+      type: DELETE_USER,
+      payload,
+    };
+  },
+  deleteUserPending: (payload) => {
+    return {
+      type: DELETE_USER_PENDING,
+      payload,
+    };
+  },
+  deleteUserSuccess: (payload) => {
+    return {
+      type: DELETE_USER_SUCCESS,
+      payload,
+    };
+  },
+  deleteUserFailure: (payload) => {
+    return {
+      type: DELETE_USER_FAILURE,
+      payload,
+    };
+  },
+  // update profile
+  updateUserProfile: (payload) => {
+    return {
+      type: UPDATE_USER_PROFILE,
+      payload,
+    };
+  },
+  updateUserProfilePending: (payload) => {
+    return {
+      type: UPDATE_USER_PROFILE_PENDING,
+      payload,
+    };
+  },
+  updateUserProfileSuccess: (payload) => {
+    return {
+      type: UPDATE_USER_PROFILE_SUCCESS,
+      payload,
+    };
+  },
+  updateUserProfileFailure: (payload) => {
+    return {
+      type: UPDATE_USER_PROFILE_FAILURE,
+      payload,
+    };
+  },
+};
+export default actions;
+
+// Screens
+//of add modal
+
+
+
+import PropTypes from 'prop-types';
+import React, { useEffect, useState } from 'react';
+import {
+  Box,
+  Button,
+  CircularProgress,
+  DialogActions,
+  FormControl as FormControlDefault,
+  FormHelperText,
+  Input,
+  InputLabel,
+  MenuItem,
+  Select,
+  InputAdornment,
+  IconButton,
+  Drawer,
+  Typography,
+  TableCell,
+  TableRow,
+  useMediaQuery,
+} from '@material-ui/core';
+import Skeleton from '@material-ui/lab/Skeleton';
+import VisibilityOffIcon from '@material-ui/icons/VisibilityOff';
+import VisibilityIcon from '@material-ui/icons/Visibility';
+import axios from 'axios';
+import { connect, useSelector } from 'react-redux';
+import styled from 'styled-components';
+import * as Yup from 'yup';
+import clsx from 'clsx';
+import useValidator from '../../../utils/useValidator';
+import actions from '../../../Stores/Users/actions';
+import roleActions from '../../../Stores/Roles/actions';
+import companyActions from '../../../Stores/Company/actions';
+import { Close } from '@material-ui/icons';
+import { useStyles } from '../styles';
+import CancelModal from '../../../Components/CancelModal';
+
+const {
+  closeUsersAddModal,
+  closeUsersEditModal,
+  usersViewModalStartFetching,
+} = actions;
+const saveUserAction = actions.saveUser;
+const editUserAction = actions.editUser;
+const getRolesAction = roleActions.getRoles;
+const loadCompanyAction = companyActions.loadCompany;
+
+const FormControl = styled(FormControlDefault)`
+  margin-bottom: 0.5rem;
+`;
+const FieldName = styled(Typography)`
+  width: 50px;
+  color: gray;
+`;
+const FieldValue = styled(Typography)`
+  font-size: 1.25rem;
+  min-width: 80px;
+  font-weight: 700;
+`;
+const UserAddModal = ({
+  closeAddModal,
+  closeEditModal,
+  isModalOpen,
+  relistUsers,
+  isEditing,
+  currentUser,
+  openUsersViewModal,
+  isFetching,
+  loadCompany,
+  isViewModalOpen,
+  roles,
+  isRolesLoading,
+  error,
+  getRoles,
+  saveUser,
+  isUserSaving,
+  saveError,
+  editUser,
+}) => {
+  const classes = useStyles();
+  const isSmallScreen = useMediaQuery((theme) => theme.breakpoints.down('md'));
+  const token = useSelector((state) => state?.AuthReducer?.token);
+  const companies = useSelector((state) => state?.CompanyReducer?.companies);
+  const isLoadingCompanies = useSelector(
+    (state) => state?.CompanyReducer?.isLoadingCompanies,
+  );
+  const [selectedRole, setSelectedRole] = useState('');
+  const [restricted, setRestricted] = useState(false);
+
+  const {
+    getFieldProps,
+    errors,
+    setValues,
+    handleChange,
+    handleBlur,
+    touched,
+    handleSubmit,
+    clearFormState,
+  } = useValidator({
+    initialValues: {
+      name: '',
+      email: '',
+      newPassword: '',
+      role_id: '',
+      company_id: '',
+    },
+    onSubmit,
+    validationSchema: Yup.object({
+      name: Yup.string().required('Name is required!'),
+      /* eslint-disable indent, no-useless-escape */
+      newPassword: isEditing
+        ? Yup.string().test(
+            'Password Validation',
+            'Password format invalid',
+            (value) => {
+              if (value.length > 0)
+                return /^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[!@#$%^&*])(?=.{6,})/.test(
+                  value,
+                );
+              else return true;
+            },
+          )
+        : Yup.string()
+            .matches(
+              /^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[!@#$%^&*])(?=.{6,})/,
+            )
+            .required(),
+      email: Yup.string().email().required(),
+      role_id: Yup.string().required(),
+      company_id:
+        restricted == true
+          ? Yup.string().required('Company is required!')
+          : Yup.string().nullable(),
+    }) /* eslint-enable indent, no-useless-escape */,
+  });
+
+  const [showPassword, setShowPassword] = useState(false);
+
+  const closeModal = isEditing ? closeEditModal : closeAddModal;
+  const [errorOnSave, setErrorOnSave] = useState(false);
+  const loadCompanyCall = async (token, cancelToken) => {
+    loadCompany({ token, cancelToken });
+  };
+
+  useEffect(() => {
+    const cancelTokenSource = axios.CancelToken.source();
+    if (isModalOpen) {
+      getRoles(token, cancelTokenSource.token);
+      loadCompanyCall(token, null);
+    }
+    if (!isModalOpen || !isEditing) {
+      clearFormState();
+    }
+    return () => cancelTokenSource.cancel();
+  }, [isModalOpen, isEditing]);
+
+  useEffect(() => {
+    if (!isFetching && !isRolesLoading)
+      if (isEditing) {
+        setValues({
+          name: currentUser.name,
+          email: currentUser.email,
+          role_id: currentUser.role.id,
+          newPassword: '',
+          company_id: currentUser?.company_id,
+        });
+        setSelectedRole(currentUser?.role?.id);
+        setRestricted(currentUser?.role?.company_restriction);
+      } else {
+        setValues({
+          name: '',
+          email: '',
+          newPassword: '',
+          role_id: '',
+          company_id: '',
+        });
+        setSelectedRole('');
+        setRestricted(false);
+      }
+  }, [isFetching, isRolesLoading]);
+
+  function onSubmit(values) {
+    let { newPassword, ...formdata } = values;
+    if (restricted == false) {
+      formdata.company_id = '';
+      values.company_id = '';
+    }
+    if (newPassword.length !== 0)
+      formdata = {
+        password: newPassword,
+        ...formdata,
+      };
+    if (isEditing) {
+      editUser({ formdata: formdata });
+    } else {
+      setErrorOnSave(true);
+      saveUser({ formdata: formdata });
+    }
+  }
+
+  saveError != null &&
+    errorOnSave === true &&
+    Object.keys(saveError).map((e, index) => {
+      if (errorOnSave) {
+        return;
+      }
+      if (Object.keys(saveError).length === index + 1) {
+        setErrorOnSave(false);
+      }
+      return alert(saveError[e]);
+    });
+  return (
+    <Drawer
+      className={clsx(classes.drawer, {
+        [classes.drawerOpen]: isModalOpen && !isViewModalOpen,
+      })}
+      variant="temporary"
+      anchor="right"
+      open={isModalOpen}
+      onClose={closeModal}
+      classes={{
+        paper: classes.drawerPaper,
+      }}
+    >
+      <div className={classes.drawerHeader}>
+        <Typography variant="h5" style={{ fontWeight: 'bold' }}>
+          {isEditing ? 'Edit' : 'Add'} User
+        </Typography>
+        <IconButton onClick={closeModal}>
+          <Close />
+        </IconButton>
+      </div>
+      {isFetching ? (
+        <>
+          <FieldName scope="row">
+            <Skeleton />
+          </FieldName>
+
+          <FieldValue colSpan={4} scope="row">
+            <Skeleton />
+          </FieldValue>
+          <FieldName scope="row">
+            <Skeleton />
+          </FieldName>
+
+          <FieldValue colSpan={4} scope="row">
+            <Skeleton />
+          </FieldValue>
+          <FieldName scope="row">
+            <Skeleton />
+          </FieldName>
+
+          <FieldValue colSpan={4} scope="row">
+            <Skeleton />
+          </FieldValue>
+        </>
+      ) : (
+        <form onSubmit={handleSubmit}>
+          <FormControl
+            className={classes.formControl}
+            error={!!(touched.name && errors.name)}
+          >
+            <InputLabel htmlFor="name">Name</InputLabel>
+            <Input
+              type="text"
+              onBlur={handleBlur}
+              {...getFieldProps('name')}
+              id="name"
+              name="name"
+              placeholder="Name"
+              error={!!(touched.name && errors.name)}
+              aria-describedby="user-name-text"
+            />
+            {touched.name && errors.name ? (
+              <FormHelperText error={!!errors.name} id="user-name-text">
+                User name is required!
+              </FormHelperText>
+            ) : (
+              ''
+            )}
+          </FormControl>
+          <FormControl
+            className={classes.formControl}
+            error={!!(touched.email && errors.email)}
+          >
+            <InputLabel htmlFor="email">Email</InputLabel>
+            <Input
+              {...getFieldProps('email')}
+              type="email"
+              error={!!(touched.email && errors.email)}
+              id="email"
+              name="email"
+              placeholder="User email"
+            />
+            {touched.email && errors.email ? (
+              <FormHelperText error={!!errors.email}>
+                Email is invalid!
+              </FormHelperText>
+            ) : (
+              ''
+            )}
+          </FormControl>
+          <FormControl
+            className={classes.formControl}
+            error={!!(touched.newPassword && errors.newPassword)}
+          >
+            <InputLabel htmlFor="newPassword">New password</InputLabel>
+            <Input
+              {...getFieldProps('newPassword')}
+              type={showPassword ? 'text' : 'password'}
+              error={!!(touched.newPassword && errors.newPassword)}
+              id="newPassword"
+              name="newPassword"
+              placeholder="New User Password"
+              endAdornment={
+                <InputAdornment>
+                  {showPassword ? (
+                    <VisibilityIcon onClick={() => setShowPassword(false)} />
+                  ) : (
+                    <VisibilityOffIcon onClick={() => setShowPassword(true)} />
+                  )}
+                </InputAdornment>
+              }
+            />
+            {touched.newPassword && errors.newPassword ? (
+              <FormHelperText error>
+                Password should be 6 characters and should contain at least have
+                a capital, a small alphabet, a number and a special character
+                (any of !$#%@)
+              </FormHelperText>
+            ) : (
+              <FormHelperText>
+                Password should be 6 characters and should contain at least have
+                a capital, a small alphabet, a number and a special character
+                (any of !$#%@)!
+              </FormHelperText>
+            )}
+          </FormControl>
+          <FormControl
+            className={classes.formControl}
+            error={!!(touched.role_id && errors.role_id)}
+          >
+            <InputLabel htmlFor="role_id">User role</InputLabel>
+            <Select
+              // {...getFieldProps('role_id')}
+              startAdornment={
+                isRolesLoading && (
+                  <InputAdornment>
+                    <CircularProgress size="1.5rem" />
+                    <TableRow>
+                      <TableCell colSpan={2} scope="row" align="center">
+                        <Skeleton />
+                      </TableCell>
+                    </TableRow>
+                  </InputAdornment>
+                )
+              }
+              error={!!(touched.role_id && errors.role_id)}
+              id="role_id"
+              name="role_id"
+              placeholder="User role"
+              value={selectedRole}
+              onChange={(event, newValue) => {
+                handleChange('role_id')({
+                  target: { value: event.target.value },
+                  persist: () => {},
+                });
+                setSelectedRole(event.target.value);
+              }}
+            >
+              {roles &&
+                roles.length &&
+                roles.map((role) => (
+                  <MenuItem
+                    key={role.id}
+                    value={role.id}
+                    onClick={() => setRestricted(role?.company_restriction)}
+                  >
+                    {role.role_name}
+                  </MenuItem>
+                ))}
+            </Select>
+            {touched.role_id && errors.role_id ? (
+              <FormHelperText error={!!(touched.role_id && errors.role_id)}>
+                User&apos;s role should be selected!
+              </FormHelperText>
+            ) : (
+              ''
+            )}
+          </FormControl>
+
+          {companies.length > 0 && restricted == true && (
+            <FormControl
+              className={classes.formControl}
+              error={!!(touched.role_id && errors.company_id)}
+            >
+              <InputLabel htmlFor="company_id">Select company</InputLabel>
+              <Select
+                {...getFieldProps('company_id')}
+                startAdornment={
+                  isLoadingCompanies && (
+                    <InputAdornment>
+                      <CircularProgress size="1.5rem" />
+                      <TableRow>
+                        <TableCell colSpan={2} scope="row" align="center">
+                          <Skeleton />
+                        </TableCell>
+                      </TableRow>
+                    </InputAdornment>
+                  )
+                }
+                error={!!(touched.role_id && errors.company_id)}
+                id="company_id"
+                name="company_id"
+                placeholder="Select Company"
+              >
+                {companies &&
+                  companies.length &&
+                  companies.map((company) => (
+                    <MenuItem key={company.id} value={company.id}>
+                      {company.name}
+                    </MenuItem>
+                  ))}
+              </Select>
+              {touched.role_id && errors.company_id ? (
+                <FormHelperText
+                  error={!!(touched.role_id && errors.company_id)}
+                >
+                  Company should be selected!
+                </FormHelperText>
+              ) : (
+                ''
+              )}
+            </FormControl>
+          )}
+          <DialogActions>
+            <CancelModal onCloses={closeModal} />
+            <Button
+              type="submit"
+              variant="contained"
+              color="primary"
+              disabled={!!isUserSaving}
+            >
+              {isEditing ? 'Update' : 'Save'}
+            </Button>
+          </DialogActions>
+        </form>
+      )}
+    </Drawer>
+  );
+};
+
+UserAddModal.propTypes = {
+  closeAddModal: PropTypes.func.isRequired,
+  closeEditModal: PropTypes.func.isRequired,
+  relistUsers: PropTypes.func.isRequired,
+  openUsersViewModal: PropTypes.func.isRequired,
+  isViewModalOpen: PropTypes.bool,
+  isModalOpen: PropTypes.bool,
+  isFetching: PropTypes.bool,
+  isEditing: PropTypes.bool,
+  currentUser: PropTypes.object,
+  isRolesLoading: PropTypes.bool,
+  roles: PropTypes.array,
+  error: PropTypes.any,
+};
+
+const mapStateToProps = ({ UserReducer, RoleReducer }) => ({
+  isModalOpen: UserReducer.isEditModalOpen || UserReducer.isAddModalOpen,
+  isViewModalOpen: UserReducer.isViewModalOpen,
+  isEditing: UserReducer.isEditing,
+  currentUser: UserReducer.currentUser,
+  isFetching: UserReducer.isFetching,
+  isRolesLoading: RoleReducer.isRolesLoading,
+  roles: RoleReducer.roles,
+  error: RoleReducer.error,
+  isUserSaving: UserReducer.isUserSaving,
+  saveError: UserReducer.saveError,
+});
+const mapDispatchToProps = (dispatch) => ({
+  openUsersViewModal: (...args) =>
+    dispatch(usersViewModalStartFetching(...args)),
+  closeAddModal: () => dispatch(closeUsersAddModal()),
+  closeEditModal: () => dispatch(closeUsersEditModal()),
+  loadCompany: (item) => dispatch(loadCompanyAction(item)),
+  getRoles: (params) => dispatch(getRolesAction(params)),
+  saveUser: (payload) => dispatch(saveUserAction(payload)),
+  editUser: (payload) => dispatch(editUserAction(payload)),
+});
+export default connect(mapStateToProps, mapDispatchToProps)(UserAddModal);
+
+
+
