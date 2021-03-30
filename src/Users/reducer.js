@@ -1,36 +1,34 @@
-import { types } from './constants';
+//to stop from everytime iterating state using immer
+import produce from "immer";
+import { types } from "./constants";
 
 const initialState = {
-    loading: false,
-    users:[],
-    error: {},
-}
+  loading: false,
+  users: [],
+  error: {},
+};
 
-export default function usersReducer(state = initialState, action) {
+const usersReducer = (state = initialState, action) => {
+  return produce(state, (draft) => {
     switch (action.type) {
-        case types.GET_USERS:
-            debugger;
-            return {
-                ...state,
-                loading: true
-            }
-        case types.GET_USERS_SUCCESS:
-            return {
-                ...state,
-                loading: false,
-                users: action.payload,
-                error: {},
-              
-            }
-        case types.GET_USERS_FAILURE:
-            return {
-                ...state,
-                loading: false,
-                users: [],
-                error: action.error,
-            }
-        default:
+      case types.GET_USERS:
+        draft.loading = true;
+        break;
 
-            return state;
+      case types.GET_USERS_SUCCESS:
+        draft.loading = false;
+        draft.users = action.payload;
+        draft.error = {};
+        break;
+
+      case types.GET_USERS_FAILURE:
+        draft.loading = false;
+        draft.users = [];
+        draft.error = action.error;
+        break;
+      default:
+        return state;
     }
-}
+  });
+};
+export default usersReducer;
