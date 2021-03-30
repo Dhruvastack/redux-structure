@@ -9,6 +9,7 @@ const initialState = {
 export default function usersReducer(state = initialState, action) {
     switch (action.type) {
         case types.GET_USERS:
+            debugger;
             return {
                 ...state,
                 loading: true
